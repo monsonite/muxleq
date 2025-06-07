@@ -1,0 +1,126 @@
+
+
+MSTART:	equ	2048	; Reserve 2K of memory for this program + the stack
+MSIZE:	equ	32768	; Reserve 32K of memory (16Kwords) for the SUBLEQ code
+
+	    org	100h
+	
+;;;	-- Run the SUBLEQ code ----------------------------------------
+	ld 	hl,MSTART			; Initialize IP
+	
+	;;; 	At the start of step, HL = IP (in system memory)
+	
+step:	
+	ld	e,(hl)				; Load A into DE
+	inc hl
+	ld	d,(hl)
+	inc hl
+	ld	c,(hl)				; Load B into BC
+	inc hl
+	ld	b,(hl)
+	inc hl
+	ld	a,e					; Check if A=-1
+	and	d
+	inc	a
+	jr z, 	sbin			; If so, read input
+	ld	a,b					; Otherwise, check if B=-1
+	and	c
+	inc	a
+	jr z,	sbout			; If so, write output
+	
+	;;;	Perform the SUBLEQ instruction
+	
+	push hl					; Store the IP (-2) on the stack
+	ld	a,d					; Obtain [A] (set DE=[DE])
+	and	3Fh					; Make sure address is in 16K words
+	ld	d,a
+	ld	hl,MSTART			; Add to start address twice
+	add hl,de				; (SUBLEQ addresses words, we're addressing bytes
+	add hl,de				
+	ld	e,(hl)				; Load low byte
+	inc hl
+	ld	d,(hl)				; Load high byte
+	ld	a,b					; Obtain [B] (set BC=[BC])
+	and	3Fh					; This adress should also be in the 16K words
+	ld	b,a
+	ld	hl,MSTART			; Add to start address twice, again
+	add hl,bc
+	add hl,bc
+	ld	c,(hl)				; Load low byte
+	inc hl
+	ld	b,(hl)				; Load high byte
+	ld	a,c					; BC (B) -= DE (A)
+	sub	e					; Subtract low bytes
+	ld	c,a
+	ld	a,b					; Subtract high bytes
+	sbc	a,d
+	ld	b,a
+	ld	(hl),b				; HL is still pointing to the high byte of [B]
+	dec	hl
+	ld	(hl),c				; Store the low byte back too
+	pop	hl					; Restore IP
+	rla						; Check sign bit of [B] (which is still in A)
+	jr c,	sujmp			; If set, it's negative, and we need to jump
+	rra
+	or	c					; If we're still here, it wasn't set. OR with
+	jr z,	sujmp			; low bit, if zero then we also need to jump
+	inc hl 					; We don't need to jump, so we should ignore C;
+	inc hl					; increment the IP to advance past it.
+	jr	step				; Next step
+	
+	
+sujmp:		
+	ld	c,(hl)				; We do need to jump, load BC=C
+	inc hl
+	ld	a,(hl)				; High byte into A
+	rla						; See if it is negative
+	jr c,	quit			; If so, stop
+	rra
+	and	3Fh					; Don't jump outside the address space
+	ld	b,a					; High byte into B
+	ld	hl,MSTART			; Calculate new IP
+	add hl,bc
+	add hl,bc
+	jr	step				; Do next step
+	
+	
+	;;;	Input: A=-1
+sbin:	
+	inc hl					; Advance IP past C
+	inc hl
+	ex de,hl				; IP in DE
+	ld	a,b					; Calculate address for BC (B)
+	and	3Fh
+	ld	b,a
+	ld	hl,MSTART	
+	add hl,bc
+	add hl,bc
+	call	chin			; Read character
+	ld	(hl),a				; Store in low byte
+	inc hl
+	ld (hl),0 				; Store zero in high byte
+	ex de,hl				; IP back in HL
+	jr	step				; Next step
+	
+	
+	;;;	Output: B=-1
+sbout:		
+	inc hl					; Advance IP past C
+	inc hl
+	ex de,hl				; IP in DE and A in HL
+	ld	a,h					; Calculate address for A
+	and	3Fh
+	ld	h,a
+	add hl,hl
+	ld	bc,MSTART
+	add hl,bc
+	ld	a,(hl)				; Retrieve low byte (character)
+	call	chout			; Write character
+	ex de,hl				; IP back in HL
+	jr	step				; Next step 
+	
+quit:	
+	rst	0
+	
+chout:
+chin:
